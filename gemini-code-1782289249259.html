@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanguard Command</title>
+    <style>
+        body { margin: 0; padding: 0; background: #1a1a1a; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        #ui-panel { width: 300px; background: #2c3e50; padding: 20px; box-sizing: border-box; overflow-y: auto; border-right: 3px solid #34495e; }
+        #game-container { flex-grow: 1; display: flex; justify-content: center; align-items: center; background: #111; position: relative; }
+        canvas { background: #27ae60; box-shadow: inset 0 0 50px rgba(0,0,0,0.5); }
+        h1 { font-size: 20px; margin-top: 0; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        label { display: block; margin-top: 15px; font-weight: bold; font-size: 14px; }
+        input[type="range"], select { width: 100%; margin-top: 5px; }
+        button { width: 100%; padding: 10px; margin-top: 10px; background: #3498db; border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 4px; transition: 0.2s; }
+        button:hover { background: #2980b9; }
+        .order-btn { background: #e67e22; margin-top: 5px; }
+        .order-btn:hover { background: #d35400; }
+        #log { margin-top: 20px; font-size: 12px; color: #bdc3c7; height: 150px; overflow-y: auto; background: #1a1a1a; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div id="ui-panel">
+    <h1>Vanguard Command</h1>
+    
+    <label>Troop Count: <span id="troopCountDisplay">1000</span></label>
+    <input type="range" id="troopCount" min="100" max="5000" step="100" value="1000" oninput="document.getElementById('troopCountDisplay').innerText = this.value">
+    
+    <label>Starting Formation:</label>
+    <select id="formation">
+        <option value="Line">Line</option>
+        <option value="Block">Block</option>
+        <option value="Crescent">Crescent</option>
+        <option value="Inverted Crescent">Inverted Crescent</option>
+        <option value="Circle">Circle</option>
+    </select>
+    
+    <button onclick="spawnArmies()" style="background: #2ecc71;">Spawn Armies</button>
+    
+    <label style="margin-top:20px; border-top:1px solid #555; padding-top:10px;">Tactical Orders:</label>
+    <div id="orders">
+        <button class="order-btn" onclick="giveOrder('Attack')">Attack</button>
+        <button class="order-btn" onclick="giveOrder('Retreat')">Retreat</button>
+        <button class="order-btn" onclick="giveOrder('Surround')">Surround</button>
+        <button class="order-btn" onclick="giveOrder('Hold Line')">Hold Line</button>
+        <button class="order-btn" onclick="giveOrder('Charge')">Charge</button>
+        <button class="order-btn" onclick="giveOrder('Skirmish')">Skirmish</button>
+        <button class="order-btn" onclick="giveOrder('Regroup')">Regroup</button>
+        <button class="order-btn" onclick="giveOrder('Pincer')">Pincer</button>
+        <button class="order-btn" onclick="giveOrder('Focus Fire')">Focus Fire</button>
+        <button class="order-btn" onclick="giveOrder('Disperse')">Disperse</button>
+    </div>
+
+    <div id="log">Battle Log...</div>
+</div>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+</div>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const logBox = document.getElementById("log");
+
+    let soldiers = [];
+    let playerOrder = "Hold Line";
+    let enemyOrder = "Hold Line";
+
+    function logMessage(msg) {
+        logBox.innerHTML = `<div>> ${msg}</div>` + logBox.innerHTML;
+    }
+
+    class Soldier {
+        constructor(x, y, team) {
+            this.x = x;
+            this.y = y;
+            this.baseX = x;
+            this.baseY = y;
+            this.team = team; // "player" (blue) or "enemy" (red)
+            this.speed = Math.random() * 0.5 + 0.5;
+            this.alive = true;
+        }
+
+        update(enemyArmyCenter, myArmyCenter) {
+            if (!this.alive) return;
+            
+            let order = this.team === "player" ? playerOrder : enemyOrder;
+            let targetX = this.x;
+            let targetY = this.y;
+
+            // Simplified State Machine for Movement
+            if (order === "Attack") {
+                targetX = enemyArmyCenter.x;
+                targetY = enemyArmyCenter.y;
+            } else if (order === "Retreat") {
+                targetX = this.team === "player" ? -100 : canvas.width + 100;
+                targetY = this.y;
+            } else if (order === "Charge") {
+                targetX = enemyArmyCenter.x;
+                targetY = enemyArmyCenter.y;
+                this.speed = 1.5; // Move faster
+            } else if (order === "Regroup") {
+                targetX = this.baseX;
+                targetY = this.baseY;
+            } else if (order === "Surround") {
+                targetX = enemyArmyCenter.x;
+                // Flanks move up/down to encircle
+                targetY = this.y < canvas.height/2 ? enemyArmyCenter.y - 150 : enemyArmyCenter.y + 150;
+            } else if (order === "Disperse") {
+                targetX = this.x + (Math.random() - 0.5) * 50;
+                targetY = this.y + (Math.random() - 0.5) * 50;
+            } else if (order === "Hold Line") {
+                targetX = this.x; // Stay still
+            }
+
+            // Move towards target
+            let dx = targetX - this.x;
+            let dy = targetY - this.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if (dist > 2) {
+                this.x += (dx / dist) * this.speed;
+                this.y += (dy / dist) * this.speed;
+            }
+
+            // Keep in bounds
+            this.x = Math.max(0, Math.min(canvas.width, this.x));
+            this.y = Math.max(0, Math.min(canvas.height, this.y));
+        }
+
+        draw() {
+            if (!this.alive) return;
+            ctx.fillStyle = this.team === "player" ? "#3498db" : "#e74c3c";
+            ctx.fillRect(this.x, this.y, 2, 2);
+        }
+    }
+
+    function spawnArmies() {
+        let count = parseInt(document.getElementById("troopCount").value);
+        let formation = document.getElementById("formation").value;
+        
+        soldiers = [];
+        playerOrder = "Hold Line";
+        enemyOrder = "Hold Line";
+
+        logMessage(`Spawned ${count} vs ${count}. Player formation: ${formation}.`);
+        
+        generateFormation("player", count, formation, 150, canvas.width/2 - 200);
+        
+        // Enemy randomly picks a formation
+        let enemyFormations = ["Line", "Block", "Crescent", "Inverted Crescent", "Circle"];
+        let enemyForm = enemyFormations[Math.floor(Math.random() * enemyFormations.length)];
+        generateFormation("enemy", count, enemyForm, canvas.width - 150, canvas.width/2 + 200);
+    }
+
+    function generateFormation(team, count, type, centerX, centerCircleX) {
+        let rows, cols;
+        for (let i = 0; i < count; i++) {
+            let x, y;
+            if (type === "Line") {
+                x = centerX + (Math.random() * 20 - 10);
+                y = 50 + (i / count) * 500;
+            } else if (type === "Block") {
+                cols = Math.sqrt(count);
+                x = centerX - 50 + (i % cols) * (100 / cols);
+                y = 150 + Math.floor(i / cols) * (300 / cols);
+            } else if (type === "Circle") {
+                let angle = (i / count) * Math.PI * 2;
+                let radius = 80 * Math.random();
+                x = centerCircleX + Math.cos(angle) * radius;
+                y = canvas.height/2 + Math.sin(angle) * radius;
+            } else if (type === "Crescent") {
+                let p = i / count;
+                let curve = Math.sin(p * Math.PI) * 100;
+                x = team === "player" ? centerX - curve : centerX + curve;
+                y = 50 + p * 500;
+            } else if (type === "Inverted Crescent") {
+                let p = i / count;
+                let curve = Math.sin(p * Math.PI) * 100;
+                x = team === "player" ? centerX + curve : centerX - curve;
+                y = 50 + p * 500;
+            }
+            soldiers.push(new Soldier(x, y, team));
+        }
+    }
+
+    function giveOrder(order) {
+        if (soldiers.length === 0) return;
+        playerOrder = order;
+        logMessage(`Player ordered: <b>${order}</b>!`);
+        
+        // AI reacts after 1 second
+        setTimeout(() => {
+            let enemyTactics = ["Attack", "Hold Line", "Pincer", "Skirmish", "Focus Fire"];
+            if (playerOrder === "Charge") enemyOrder = "Retreat";
+            else if (playerOrder === "Surround") enemyOrder = "Focus Fire";
+            else enemyOrder = enemyTactics[Math.floor(Math.random() * enemyTactics.length)];
+            
+            logMessage(`Enemy AI ordered: <span style="color:#e74c3c"><b>${enemyOrder}</b></span>!`);
+        }, 1000);
+    }
+
+    function getCenter(team) {
+        let x = 0, y = 0, count = 0;
+        for (let s of soldiers) {
+            if (s.team === team && s.alive) {
+                x += s.x; y += s.y; count++;
+            }
+        }
+        if (count === 0) return { x: canvas.width/2, y: canvas.height/2 };
+        return { x: x/count, y: y/count };
+    }
+
+    function resolveCombat() {
+        // Very simplified, fast collision logic for performance
+        let threshold = 5;
+        for (let i = 0; i < soldiers.length; i++) {
+            if (!soldiers[i].alive) continue;
+            for (let j = i + 1; j < soldiers.length; j++) {
+                if (!soldiers[j].alive || soldiers[i].team === soldiers[j].team) continue;
+                
+                let dx = soldiers[i].x - soldiers[j].x;
+                let dy = soldiers[i].y - soldiers[j].y;
+                if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
+                    // Random chance one dies when they touch
+                    if (Math.random() > 0.5) soldiers[i].alive = false;
+                    else soldiers[j].alive = false;
+                }
+            }
+        }
+    }
+
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        let playerCenter = getCenter("player");
+        let enemyCenter = getCenter("enemy");
+
+        for (let s of soldiers) {
+            let targetCenter = s.team === "player" ? enemyCenter : playerCenter;
+            let myCenter = s.team === "player" ? playerCenter : enemyCenter;
+            s.update(targetCenter, myCenter);
+            s.draw();
+        }
+
+        // Only run combat checks occasionally to save CPU
+        if (Math.random() < 0.2) resolveCombat();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // Start loop
+    gameLoop();
+</script>
+
+</body>
+</html>
